@@ -35,6 +35,7 @@ mkValidator () r _
     | r == 42   = True
     | otherwise = False
 
+-- this is from Type-Level programming
 data Typed
 instance Scripts.ScriptType Typed where
     type instance DatumType Typed = ()

@@ -47,6 +47,7 @@ type GiftSchema =
 
 give :: (HasBlockchainActions s, AsContractError e) => Integer -> Contract w s e ()
 give amount = do
+    -- Datum constructs Datum from Data
     let tx = mustPayToOtherScript valHash (Datum $ Constr 0 []) $ Ada.lovelaceValueOf amount
     ledgerTx <- submitTx tx
     void $ awaitTxConfirmed $ txId ledgerTx
@@ -54,12 +55,13 @@ give amount = do
 
 grab :: forall w s e. (HasBlockchainActions s, AsContractError e) => Contract w s e ()
 grab = do
+    -- looking up all utxos at the address of the script `scrAddress`
     utxos <- utxoAt scrAddress
     let orefs   = fst <$> Map.toList utxos
         lookups = Constraints.unspentOutputs utxos      <>
                   Constraints.otherScript validator
         tx :: TxConstraints Void Void
-        tx      = mconcat [mustSpendScriptOutput oref $ Redeemer $ I 17 | oref <- orefs]
+        tx      = mconcat [mustSpendScriptOutput oref $ Redeemer $ I 17 | oref <- orefs] -- I 17 as Redeemer is completely arbitrary
     ledgerTx <- submitTxConstraintsWith @Void lookups tx
     void $ awaitTxConfirmed $ txId ledgerTx
     logInfo @String $ "collected gifts"
@@ -70,6 +72,7 @@ endpoints = (give' `select` grab') >> endpoints
     give' = endpoint @"give" >>= give
     grab' = endpoint @"grab" >>  grab
 
+-- This is only for the playground
 mkSchemaDefinitions ''GiftSchema
 
 mkKnownCurrencies []
