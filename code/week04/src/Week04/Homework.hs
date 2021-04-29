@@ -26,17 +26,32 @@ data PayParams = PayParams
 type PaySchema = BlockchainActions .\/ Endpoint "pay" PayParams
 
 payContract :: Contract () PaySchema Text ()
-payContract = do
-    pp <- endpoint @"pay"
-    let tx = mustPayToPubKey (ppRecipient pp) $ lovelaceValueOf $ ppLovelace pp
-    void $ submitTx tx
-    payContract
+payContract = Contract.handleError errorHandler payTask
+  where
+    errorHandler err = do
+        Contract.logError $ "Caught error: " ++ unpack err
+        payContract
+
+    payTask = do
+      pp <- endpoint @"pay"
+      let tx = mustPayToPubKey (ppRecipient pp) $ lovelaceValueOf $ ppLovelace pp
+      void $ submitTx tx
+      payContract
 
 -- A trace that invokes the pay endpoint of payContract on Wallet 1 twice, each time with Wallet 2 as
 -- recipient, but with amounts given by the two arguments. There should be a delay of one slot
 -- after each endpoint call.
 payTrace :: Integer -> Integer -> EmulatorTrace ()
-payTrace x y = undefined -- IMPLEMENT ME!
+payTrace x y = do
+    sender <- activateContractWallet senderWallet payContract
+    callEndpoint @"pay" sender $ PayParams recipientWalletHash x
+    void $ Emulator.waitNSlots 1
+    callEndpoint @"pay" sender $ PayParams recipientWalletHash y
+    void $ Emulator.waitNSlots 1
+ where
+    senderWallet = Wallet 1
+    recipientWallet = Wallet 2
+    recipientWalletHash = pubKeyHash $ walletPubKey recipientWallet
 
 payTest1 :: IO ()
 payTest1 = runEmulatorTraceIO $ payTrace 1000000 2000000
