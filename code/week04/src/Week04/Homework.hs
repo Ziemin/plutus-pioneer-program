@@ -26,17 +26,14 @@ data PayParams = PayParams
 type PaySchema = BlockchainActions .\/ Endpoint "pay" PayParams
 
 payContract :: Contract () PaySchema Text ()
-payContract = Contract.handleError errorHandler payTask
+payContract = Contract.handleError errorHandler payTask >> payContract
   where
-    errorHandler err = do
-        Contract.logError $ "Caught error: " ++ unpack err
-        payContract
+    errorHandler err = Contract.logError $ "Caught error: " ++ unpack err
 
     payTask = do
       pp <- endpoint @"pay"
       let tx = mustPayToPubKey (ppRecipient pp) $ lovelaceValueOf $ ppLovelace pp
       void $ submitTx tx
-      payContract
 
 -- A trace that invokes the pay endpoint of payContract on Wallet 1 twice, each time with Wallet 2 as
 -- recipient, but with amounts given by the two arguments. There should be a delay of one slot
