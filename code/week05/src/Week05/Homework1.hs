@@ -37,13 +37,29 @@ import           Wallet.Emulator.Wallet
 -- This policy should only allow minting (or burning) of tokens if the owner of the specified PubKeyHash
 -- has signed the transaction and if the specified deadline has not passed.
 mkPolicy :: PubKeyHash -> Slot -> ScriptContext -> Bool
-mkPolicy pkh deadline ctx = True -- FIX ME!
+mkPolicy pkh deadline ctx =
+    traceIfFalse "Transaction is not signed by the owner" checkSignature &&
+    traceIfFalse "Deadline for minting passed" checkDeadline
+  where
+    info :: TxInfo
+    info = scriptContextTxInfo ctx
+
+    checkSignature :: Bool
+    checkSignature = txSignedBy info pkh
+
+    checkDeadline :: Bool
+    checkDeadline =  to deadline `contains` txInfoValidRange info
 
 policy :: PubKeyHash -> Slot -> Scripts.MonetaryPolicy
-policy pkh deadline = undefined -- IMPLEMENT ME!
+policy pkh deadline = mkMonetaryPolicyScript $
+  $$(PlutusTx.compile [|| \p d -> Scripts.wrapMonetaryPolicy $ mkPolicy p d ||])
+  `PlutusTx.applyCode`
+  PlutusTx.liftCode pkh
+  `PlutusTx.applyCode`
+  PlutusTx.liftCode deadline
 
 curSymbol :: PubKeyHash -> Slot -> CurrencySymbol
-curSymbol pkh deadline = undefined -- IMPLEMENT ME!
+curSymbol pkh deadline = scriptCurrencySymbol (policy pkh deadline)
 
 data MintParams = MintParams
     { mpTokenName :: !TokenName
@@ -62,13 +78,14 @@ mint mp = do
     let deadline = mpDeadline mp
     if now > deadline
         then Contract.logError @String "deadline passed"
-        else do
-            let val     = Value.singleton (curSymbol pkh deadline) (mpTokenName mp) (mpAmount mp)
-                lookups = Constraints.monetaryPolicy $ policy pkh deadline
-                tx      = Constraints.mustForgeValue val <> Constraints.mustValidateIn (to deadline)
-            ledgerTx <- submitTxConstraintsWith @Void lookups tx
-            void $ awaitTxConfirmed $ txId ledgerTx
-            Contract.logInfo @String $ printf "forged %s" (show val)
+      else do
+      let
+        val     = Value.singleton (curSymbol pkh deadline) (mpTokenName mp) (mpAmount mp)
+        lookups = Constraints.monetaryPolicy $ policy pkh deadline
+        tx      = Constraints.mustForgeValue val <> Constraints.mustValidateIn (to deadline)
+      ledgerTx <- submitTxConstraintsWith @Void lookups tx
+      void $ awaitTxConfirmed $ txId ledgerTx
+      Contract.logInfo @String $ printf "forged %s" (show val)
 
 endpoints :: Contract () SignedSchema Text ()
 endpoints = mint' >> endpoints
