@@ -1,5 +1,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main
     ( main
@@ -8,10 +9,13 @@ module Main
 import Control.Concurrent
 import Control.Monad          (when)
 import Control.Monad.IO.Class (MonadIO (..))
+import Data.Aeson
+import Data.Aeson.Types       (parseMaybe)
 import Data.ByteString        (ByteString)
 import Data.ByteString.Char8  (unpack)
+import Data.Maybe             (fromJust)
 import Data.Proxy             (Proxy (..))
-import Data.Text              (pack)
+import Data.Text              (pack, Text)
 import Data.UUID
 import Network.HTTP.Req
 import Text.Regex.TDFA
@@ -57,3 +61,28 @@ getExchangeRate = runReq defaultHttpConfig $ do
         x               = round $ 1_000_000 * d
     liftIO $ putStrLn $ "queried exchange rate: " ++ show d
     return x
+
+data Payload = Payload
+  { id :: String
+  , vs_currency :: String
+  , days :: Integer
+  }
+
+getExchangeRateCoingecko :: IO Integer
+getExchangeRateCoingecko = runReq defaultHttpConfig $ do
+    v :: Object <- responseBody <$> req
+        GET
+        (https "api.coingecko.com" /: "api" /: "v3" /: "simple" /: "price")
+        NoReqBody
+        jsonResponse
+        ("ids" =: ("cardano" :: Text) <> "vs_currencies" =: ("usd" :: Text))
+
+    let
+      exch_rate :: Double
+      exch_rate = fromJust $ flip parseMaybe v $ \obj -> do
+            crd_vals :: Object <- obj .: "cardano"
+            usd_obj :: Value <- crd_vals .: "usd"
+            parseJSON usd_obj
+      rate = round $ exch_rate * 1_000_000
+    liftIO $ putStrLn $ "queried exchange rate: " ++ show exch_rate
+    return rate
